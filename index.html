@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OB Emerg Manual</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta name="theme-color" content="#ff3b30">
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      background-color: #525659;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+    #pdf-container {
+      width: 100%;
+      max-width: 800px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      margin-bottom: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+      background-color: white; /* so transparent PDFs don't blend with dark background */
+    }
+    .loading {
+      color: white;
+      font-family: sans-serif;
+      margin-top: 50px;
+    }
+  </style>
+</head>
+<body>
+  <div id="pdf-container">
+    <div class="loading">Loading manual...</div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').then((registration) => {
+          console.log('ServiceWorker registration successful');
+        });
+      });
+    }
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const url = './manual.pdf';
+    const container = document.getElementById('pdf-container');
+
+    pdfjsLib.getDocument(url).promise.then(function(pdf) {
+      container.innerHTML = ''; // clear loading text
+
+      // Setup DOM elements in order first
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const canvas = document.createElement('canvas');
+        canvas.id = `page-${pageNum}`;
+        container.appendChild(canvas);
+      }
+
+      // Render all pages
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        pdf.getPage(pageNum).then(function(page) {
+          const canvas = document.getElementById(`page-${pageNum}`);
+          const ctx = canvas.getContext('2d');
+          
+          // Render highly scaled for clearer text on high-DPI displays (phones)
+          const viewport = page.getViewport({scale: 2.0});
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          const renderContext = {
+            canvasContext: ctx,
+            viewport: viewport
+          };
+          page.render(renderContext);
+        });
+      }
+    }).catch(function(error) {
+      console.error('Error rendering PDF:', error);
+      container.innerHTML = '<div class="loading">Failed to load manuscript.</div>';
+    });
+  </script>
+</body>
+</html>
