@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ob-emerg-manual-v1';
+const CACHE_NAME = 'ob-emerg-manual-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -18,11 +18,31 @@ self.addEventListener('install', (event) => {
   );
 });
 
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    })
+  );
+});
+
+// Network First strategy
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        return response || fetch(event.request);
-      })
+    fetch(event.request).then((response) => {
+      let responseClone = response.clone();
+      caches.open(CACHE_NAME).then((cache) => {
+        cache.put(event.request, responseClone);
+      });
+      return response;
+    }).catch(() => {
+      return caches.match(event.request);
+    })
   );
 });
