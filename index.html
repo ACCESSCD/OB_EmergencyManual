@@ -220,17 +220,63 @@
 
     function promptPageJump() {
       if (!pdfDocGlobal) return;
-      const pg = prompt(`Enter page number (1-${pdfDocGlobal.numPages}):`);
+      const pg = prompt(`Enter printed page number to jump to:`);
       if (pg) {
-        const pageNum = parseInt(pg, 10);
-        if (pageNum >= 1 && pageNum <= pdfDocGlobal.numPages) {
-          clearHighlights();
-          scrollToPage(pageNum);
-          document.getElementById('searchInfo').innerText = `Pg ${pageNum}`;
-          searchMatches = [];
-          updateNavButtons();
-        } else {
-          alert("Invalid page number.");
+        clearHighlights();
+        const pSearch = pg.trim().toLowerCase();
+        let found = false;
+        
+        for (let i = 0; i < pageItems.length; i++) {
+          const pt = pageItems[i];
+          const highlightLayer = document.getElementById(`highlight-${pt.pageNum}`);
+          
+          for (let j = 0; j < pt.items.length; j++) {
+             const item = pt.items[j];
+             const iStr = item.str.trim().toLowerCase();
+             
+             if (iStr === pSearch || iStr === `page ${pSearch}` || iStr === `- ${pSearch} -` || iStr === `${pSearch}.`) {
+                const fontHeight = Math.abs(item.transform[3]) || item.height || 10;
+                const tx = item.transform[4];
+                const ty = item.transform[5];
+                const width = item.width || 10;
+                
+                const rect = [tx, ty, tx + width, ty + fontHeight];
+                const viewRect = pt.viewport.convertToViewportRectangle(rect);
+                const xMin = Math.min(viewRect[0], viewRect[2]);
+                const yMin = Math.min(viewRect[1], viewRect[3]);
+                const drawWidth = Math.abs(viewRect[2] - viewRect[0]);
+
+                if (highlightLayer) {
+                   const mark = document.createElement('div');
+                   mark.className = 'highlight-box';
+                   mark.style.left = (xMin / pt.viewport.width * 100) + '%';
+                   mark.style.top = (yMin / pt.viewport.height * 100) + '%';
+                   mark.style.width = (drawWidth / pt.viewport.width * 100) + '%';
+                   mark.style.height = (fontHeight / pt.viewport.height * 100) + '%';
+                   highlightLayer.appendChild(mark);
+                   
+                   setTimeout(() => {
+                      const headerOffset = 150; 
+                      const elementPosition = mark.getBoundingClientRect().top;
+                      window.scrollTo({
+                         top: elementPosition + window.pageYOffset - headerOffset,
+                         behavior: "smooth"
+                      });
+                   }, 50);
+                }
+                
+                document.getElementById('searchInfo').innerText = `Pg ${pg}`;
+                searchMatches = [];
+                updateNavButtons();
+                found = true;
+                break;
+             }
+          }
+          if (found) break;
+        }
+        
+        if (!found) {
+          alert(`Could not find printed page "${pg}". Try searching for the section's title text instead!`);
         }
       }
     }
@@ -241,18 +287,6 @@
       
       clearHighlights();
       
-      // If purely numeric, treat as a quick page jump request
-      if (/^\d+$/.test(query) && pdfDocGlobal) {
-        const pageNum = parseInt(query, 10);
-        if (pageNum >= 1 && pageNum <= pdfDocGlobal.numPages) {
-          scrollToPage(pageNum);
-          infoText.innerText = `Pg ${pageNum}`;
-          searchMatches = [];
-          updateNavButtons();
-          return;
-        }
-      }
-      
       if (!query || !pdfDocGlobal) {
         searchMatches = [];
         infoText.innerText = '';
@@ -261,13 +295,16 @@
       }
       
       const qLower = query.toLowerCase();
-      searchMatches = pageTexts
-        .filter(pt => pt.text.includes(qLower))
-        .map(pt => pt.pageNum);
+      searchMatches = [];
+      let matchCount = 0;
       
       const queryWords = qLower.split(/\s+/).filter(w => w.length > 2);
+      
       pageItems.forEach(pt => {
-        if (!searchMatches.includes(pt.pageNum)) return;
+        // Optimization: check if page has any match textually before calculating bounds
+        const pageTextObj = pageTexts.find(p => p.pageNum === pt.pageNum);
+        if (pageTextObj && !pageTextObj.text.includes(qLower)) return;
+        
         const highlightLayer = document.getElementById(`highlight-${pt.pageNum}`);
         if (!highlightLayer) return;
 
@@ -288,8 +325,10 @@
              const yMin = Math.min(viewRect[1], viewRect[3]);
              const drawWidth = Math.abs(viewRect[2] - viewRect[0]);
              
+             const markId = `match-${matchCount++}`;
              const mark = document.createElement('div');
              mark.className = 'highlight-box';
+             mark.id = markId;
              mark.style.left = (xMin / pt.viewport.width * 100) + '%';
              mark.style.top = (yMin / pt.viewport.height * 100) + '%';
              mark.style.width = (drawWidth / pt.viewport.width * 100) + '%';
@@ -297,18 +336,37 @@
              mark.style.marginTop = (-0.2 * fontHeight / pt.viewport.height * 100) + '%';
              
              highlightLayer.appendChild(mark);
+             searchMatches.push({ pageNum: pt.pageNum, markId: markId });
           }
         });
       });
 
       if (searchMatches.length > 0) {
         currentMatchIndex = 0;
-        scrollToPage(searchMatches[0]);
+        scrollToMatch(currentMatchIndex);
         updateNavButtons();
       } else {
         infoText.innerText = '0/0';
         updateNavButtons();
         alert('No matches found for "' + query + '"');
+      }
+    }
+
+    function scrollToMatch(index) {
+      if (index < 0 || index >= searchMatches.length) return;
+      const match = searchMatches[index];
+      const markEl = document.getElementById(match.markId);
+      
+      if (markEl) {
+        const headerOffset = 150; 
+        const elementPosition = markEl.getBoundingClientRect().top;
+        window.scrollTo({
+           top: elementPosition + window.pageYOffset - headerOffset,
+           behavior: "smooth"
+        });
+      } else {
+        // Fallback to wrapper
+        scrollToPage(match.pageNum);
       }
     }
 
@@ -347,7 +405,7 @@
     function nextMatch() {
       if (currentMatchIndex < searchMatches.length - 1) {
         currentMatchIndex++;
-        scrollToPage(searchMatches[currentMatchIndex]);
+        scrollToMatch(currentMatchIndex);
         updateNavButtons();
       }
     }
@@ -355,7 +413,7 @@
     function prevMatch() {
       if (currentMatchIndex > 0) {
         currentMatchIndex--;
-        scrollToPage(searchMatches[currentMatchIndex]);
+        scrollToMatch(currentMatchIndex);
         updateNavButtons();
       }
     }
