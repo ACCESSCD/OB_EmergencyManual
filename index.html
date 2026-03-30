@@ -21,6 +21,7 @@
       flex-direction: column;
       align-items: center;
       transition: width 0.2s ease-in-out;
+      padding-top: 80px;
     }
     .zoom-controls {
       position: fixed;
@@ -80,6 +81,20 @@
       position: absolute;
       border: 1px solid transparent; /* set to rgba(255,0,0,0.2) to debug links */
       cursor: pointer;
+    }
+    .highlightLayer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .highlight-box {
+      position: absolute;
+      background-color: rgba(255, 255, 0, 0.4);
+      border-radius: 4px;
+      box-shadow: 0 0 4px rgba(255, 255, 0, 0.6);
     }
     .search-container {
       position: fixed;
@@ -168,6 +183,7 @@
 </head>
 <body>
   <div class="search-container">
+    <button class="search-btn" onclick="promptPageJump()" aria-label="Jump to Page" style="font-size:18px; background:#444;">📄</button>
     <input type="text" id="searchInput" class="search-input" placeholder="Search or Pg#...">
     <button class="search-btn" onclick="executeSearch()" aria-label="Search">🔍</button>
     <div id="searchInfo" class="search-info"></div>
@@ -189,13 +205,41 @@
     let currentZoom = 100;
 
     let pageTexts = []; // Array of {pageNum, text}
+    let pageItems = []; // Array of {pageNum, items, viewport}
     let searchMatches = []; // Array of matching page numbers
     let currentMatchIndex = -1;
     let pdfDocGlobal = null;
 
+    function clearHighlights() {
+      if (!pdfDocGlobal) return;
+      for (let i = 1; i <= pdfDocGlobal.numPages; i++) {
+        const layer = document.getElementById(`highlight-${i}`);
+        if (layer) layer.innerHTML = '';
+      }
+    }
+
+    function promptPageJump() {
+      if (!pdfDocGlobal) return;
+      const pg = prompt(`Enter page number (1-${pdfDocGlobal.numPages}):`);
+      if (pg) {
+        const pageNum = parseInt(pg, 10);
+        if (pageNum >= 1 && pageNum <= pdfDocGlobal.numPages) {
+          clearHighlights();
+          scrollToPage(pageNum);
+          document.getElementById('searchInfo').innerText = `Pg ${pageNum}`;
+          searchMatches = [];
+          updateNavButtons();
+        } else {
+          alert("Invalid page number.");
+        }
+      }
+    }
+
     function executeSearch() {
       const query = document.getElementById('searchInput').value.trim();
       const infoText = document.getElementById('searchInfo');
+      
+      clearHighlights();
       
       // If purely numeric, treat as a quick page jump request
       if (/^\d+$/.test(query) && pdfDocGlobal) {
@@ -221,6 +265,42 @@
         .filter(pt => pt.text.includes(qLower))
         .map(pt => pt.pageNum);
       
+      const queryWords = qLower.split(/\s+/).filter(w => w.length > 2);
+      pageItems.forEach(pt => {
+        if (!searchMatches.includes(pt.pageNum)) return;
+        const highlightLayer = document.getElementById(`highlight-${pt.pageNum}`);
+        if (!highlightLayer) return;
+
+        pt.items.forEach(item => {
+          const iLower = item.str.toLowerCase();
+          const matchesFull = iLower.includes(qLower);
+          const matchesWord = queryWords.some(w => iLower.includes(w));
+          
+          if (matchesFull || (qLower.includes(" ") && matchesWord)) {
+             const fontHeight = Math.abs(item.transform[3]) || item.height || 10;
+             const tx = item.transform[4];
+             const ty = item.transform[5];
+             const width = item.width || 10;
+             
+             const rect = [tx, ty, tx + width, ty + fontHeight];
+             const viewRect = pt.viewport.convertToViewportRectangle(rect);
+             const xMin = Math.min(viewRect[0], viewRect[2]);
+             const yMin = Math.min(viewRect[1], viewRect[3]);
+             const drawWidth = Math.abs(viewRect[2] - viewRect[0]);
+             
+             const mark = document.createElement('div');
+             mark.className = 'highlight-box';
+             mark.style.left = (xMin / pt.viewport.width * 100) + '%';
+             mark.style.top = (yMin / pt.viewport.height * 100) + '%';
+             mark.style.width = (drawWidth / pt.viewport.width * 100) + '%';
+             mark.style.height = (fontHeight / pt.viewport.height * 100) + '%';
+             mark.style.marginTop = (-0.2 * fontHeight / pt.viewport.height * 100) + '%';
+             
+             highlightLayer.appendChild(mark);
+          }
+        });
+      });
+
       if (searchMatches.length > 0) {
         currentMatchIndex = 0;
         scrollToPage(searchMatches[0]);
@@ -339,6 +419,11 @@
         annotationLayer.className = 'annotationLayer';
         annotationLayer.id = `annot-${pageNum}`;
         wrapper.appendChild(annotationLayer);
+        
+        const highlightLayer = document.createElement('div');
+        highlightLayer.className = 'highlightLayer';
+        highlightLayer.id = `highlight-${pageNum}`;
+        wrapper.appendChild(highlightLayer);
 
         container.appendChild(wrapper);
       }
@@ -361,17 +446,25 @@
           page.render(renderContext);
           
           // Extract text for searching
+          const unscaledViewport = page.getViewport({scale: 1.0}); // Reference geometry
+          
           page.getTextContent().then(function(textContent) {
             const textStr = textContent.items.map(s => s.str).join(' ').toLowerCase();
             pageTexts.push({ pageNum: pageNum, text: textStr });
             // Keep strictly sorted for correct next/prev jumping
             pageTexts.sort((a,b) => a.pageNum - b.pageNum);
+            
+            pageItems.push({
+               pageNum: pageNum,
+               items: textContent.items,
+               viewport: unscaledViewport
+            });
+            pageItems.sort((a,b) => a.pageNum - b.pageNum);
           });
           
           // Render interactive annotations (hyperlinks and index jumps)
           page.getAnnotations().then(function(annotations) {
             const annotationLayer = document.getElementById(`annot-${pageNum}`);
-            const unscaledViewport = page.getViewport({scale: 1.0}); // Reference geometry
             
             annotations.forEach(function(anno) {
               if (anno.subtype === 'Link') {
