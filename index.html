@@ -96,6 +96,13 @@
       border-radius: 4px;
       box-shadow: 0 0 4px rgba(255, 255, 0, 0.6);
     }
+    .interactiveLayer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
     .search-container {
       position: fixed;
       top: 15px;
@@ -282,7 +289,7 @@
          best.highlightLayer.appendChild(mark);
          
          setTimeout(() => {
-            const headerOffset = 150; 
+            const headerOffset = 300; 
             const elementPosition = mark.getBoundingClientRect().top;
             window.scrollTo({
                top: elementPosition + window.pageYOffset - headerOffset,
@@ -387,7 +394,7 @@
       const markEl = document.getElementById(match.markId);
       
       if (markEl) {
-        const headerOffset = 150; 
+        const headerOffset = 300; 
         const elementPosition = markEl.getBoundingClientRect().top;
         window.scrollTo({
            top: elementPosition + window.pageYOffset - headerOffset,
@@ -512,6 +519,13 @@
         highlightLayer.id = `highlight-${pageNum}`;
         wrapper.appendChild(highlightLayer);
 
+        if (pageNum === 1) {
+           const interactiveLayer = document.createElement('div');
+           interactiveLayer.className = 'interactiveLayer';
+           interactiveLayer.id = `interactive-${pageNum}`;
+           wrapper.appendChild(interactiveLayer);
+        }
+
         container.appendChild(wrapper);
       }
 
@@ -547,6 +561,44 @@
                viewport: unscaledViewport
             });
             pageItems.sort((a,b) => a.pageNum - b.pageNum);
+            
+            // Build clickable transparent text bounding boxes for the Index (Page 1)
+            if (pageNum === 1) {
+               const interactiveLayer = document.getElementById(`interactive-${pageNum}`);
+               if (interactiveLayer) {
+                  textContent.items.forEach(item => {
+                      const str = item.str.trim();
+                      if (str.length < 2) return; // Ignore noise
+                      
+                      const fontHeight = Math.abs(item.transform[3]) || item.height || 10;
+                      const tx = item.transform[4];
+                      const ty = item.transform[5];
+                      const width = item.width || 20;
+                      
+                      const rect = [tx, ty, tx + width, ty + fontHeight];
+                      const viewRect = unscaledViewport.convertToViewportRectangle(rect);
+                      const yMin = Math.min(viewRect[1], viewRect[3]);
+                      const xMin = Math.min(viewRect[0], viewRect[2]);
+                      const drawWidth = Math.abs(viewRect[2] - viewRect[0]);
+                      
+                      const btn = document.createElement('div');
+                      btn.style.position = 'absolute';
+                      btn.style.left = (xMin / unscaledViewport.width * 100) + '%';
+                      btn.style.top = (yMin / unscaledViewport.height * 100) + '%';
+                      btn.style.width = (drawWidth / unscaledViewport.width * 100) + '%';
+                      btn.style.height = (fontHeight / unscaledViewport.height * 100) + '%';
+                      btn.style.cursor = 'pointer';
+                      btn.style.zIndex = '50';
+                      
+                      btn.onclick = function() {
+                          const input = document.getElementById('searchInput');
+                          input.value = str;
+                          executeSearch();
+                      };
+                      interactiveLayer.appendChild(btn);
+                  });
+               }
+            }
           });
           
           // Render interactive annotations (hyperlinks and index jumps)
