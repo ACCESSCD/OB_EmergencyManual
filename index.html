@@ -587,15 +587,18 @@
                       btn.style.top = (yMin / unscaledViewport.height * 100) + '%';
                       btn.style.width = (drawWidth / unscaledViewport.width * 100) + '%';
                       btn.style.height = (fontHeight / unscaledViewport.height * 100) + '%';
-                      btn.style.cursor = 'pointer';
-                      btn.style.zIndex = '50';
-                      
                       btn.onclick = function() {
-                          const input = document.getElementById('searchInput');
-                          input.value = str;
-                          executeSearch();
+                          if (/^\d+$/.test(str)) {
+                              const input = document.getElementById('searchInput');
+                              input.value = str;
+                              executeSearch();
+                          }
                       };
-                      interactiveLayer.appendChild(btn);
+                      // Only make it act like a pointer if it's actually a clickable numeric link
+                      if (/^\d+$/.test(str)) {
+                          btn.style.cursor = 'pointer';
+                          interactiveLayer.appendChild(btn);
+                      }
                   });
                }
             }
