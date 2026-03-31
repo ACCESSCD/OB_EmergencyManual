@@ -222,6 +222,9 @@
       if (!pdfDocGlobal) return;
       clearHighlights();
       const pSearch = pg.trim().toLowerCase();
+      // Escape for safe regex consumption
+      const pEscaped = pSearch.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const pgRegex = new RegExp(`\\b${pEscaped}\\b`, 'i');
       let candidates = [];
       
       for (let i = 0; i < pageItems.length; i++) {
@@ -231,9 +234,9 @@
         
         for (let j = 0; j < pt.items.length; j++) {
            const item = pt.items[j];
-           const iStr = item.str.trim().toLowerCase();
+           const iStr = item.str; // We do not trim or lowercase because Regex 'i' and \b handle that natively
            
-           if (iStr === pSearch || iStr === `page ${pSearch}` || iStr === `- ${pSearch} -` || iStr === `${pSearch}.`) {
+           if (pgRegex.test(iStr)) {
               const rect = [item.transform[4], item.transform[5], item.transform[4] + item.width, item.transform[5] + 10];
               const viewRect = pt.viewport.convertToViewportRectangle(rect);
               const xMin = Math.min(viewRect[0], viewRect[2]);
