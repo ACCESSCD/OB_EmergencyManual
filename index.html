@@ -218,66 +218,87 @@
       }
     }
 
-    function promptPageJump() {
+    function performPageJump(pg) {
       if (!pdfDocGlobal) return;
-      const pg = prompt(`Enter printed page number to jump to:`);
-      if (pg) {
-        clearHighlights();
-        const pSearch = pg.trim().toLowerCase();
-        let found = false;
+      clearHighlights();
+      const pSearch = pg.trim().toLowerCase();
+      let candidates = [];
+      
+      for (let i = 0; i < pageItems.length; i++) {
+        const pt = pageItems[i];
+        const highlightLayer = document.getElementById(`highlight-${pt.pageNum}`);
+        if (!highlightLayer) continue;
         
-        for (let i = 0; i < pageItems.length; i++) {
-          const pt = pageItems[i];
-          const highlightLayer = document.getElementById(`highlight-${pt.pageNum}`);
-          
-          for (let j = 0; j < pt.items.length; j++) {
-             const item = pt.items[j];
-             const iStr = item.str.trim().toLowerCase();
-             
-             if (iStr === pSearch || iStr === `page ${pSearch}` || iStr === `- ${pSearch} -` || iStr === `${pSearch}.`) {
-                const fontHeight = Math.abs(item.transform[3]) || item.height || 10;
-                const tx = item.transform[4];
-                const ty = item.transform[5];
-                const width = item.width || 10;
-                
-                const rect = [tx, ty, tx + width, ty + fontHeight];
-                const viewRect = pt.viewport.convertToViewportRectangle(rect);
-                const xMin = Math.min(viewRect[0], viewRect[2]);
-                const yMin = Math.min(viewRect[1], viewRect[3]);
-                const drawWidth = Math.abs(viewRect[2] - viewRect[0]);
+        for (let j = 0; j < pt.items.length; j++) {
+           const item = pt.items[j];
+           const iStr = item.str.trim().toLowerCase();
+           
+           if (iStr === pSearch || iStr === `page ${pSearch}` || iStr === `- ${pSearch} -` || iStr === `${pSearch}.`) {
+              const rect = [item.transform[4], item.transform[5], item.transform[4] + item.width, item.transform[5] + 10];
+              const viewRect = pt.viewport.convertToViewportRectangle(rect);
+              const xMin = Math.min(viewRect[0], viewRect[2]);
+              const normX = xMin / pt.viewport.width;
+              
+              candidates.push({ pt, item, normX, highlightLayer });
+           }
+        }
+      }
+      
+      // Geometric Filter A: Ignore hits on the first PDF page (Index) unless the user specifically searched for "1"
+      if (pSearch !== '1') {
+         candidates = candidates.filter(c => c.pt.pageNum !== 1);
+      } // If pSearch is '1', we allow the index page as a hit but rely on the margin-alignment sort next!
+      
+      // Geometric Filter B: Sort matches by how close they are to the far edges (left OR right).
+      // Page tabs are pushed out into the margins. We calculate distance from the vertical center (0.5)!
+      candidates.sort((a, b) => {
+         const distA = Math.abs(a.normX - 0.5);
+         const distB = Math.abs(b.normX - 0.5);
+         return distB - distA; // Descending, so furthest from center wins!
+      });
+      
+      if (candidates.length > 0) {
+         const best = candidates[0]; // The element physically closest to the left or right margin
+         const fontHeight = Math.abs(best.item.transform[3]) || best.item.height || 10;
+         const tx = best.item.transform[4];
+         const ty = best.item.transform[5];
+         const width = best.item.width || 10;
+         
+         const rect = [tx, ty, tx + width, ty + fontHeight];
+         const viewRect = best.pt.viewport.convertToViewportRectangle(rect);
+         const yMin = Math.min(viewRect[1], viewRect[3]);
+         const xMin = Math.min(viewRect[0], viewRect[2]);
+         const drawWidth = Math.abs(viewRect[2] - viewRect[0]);
 
-                if (highlightLayer) {
-                   const mark = document.createElement('div');
-                   mark.className = 'highlight-box';
-                   mark.style.left = (xMin / pt.viewport.width * 100) + '%';
-                   mark.style.top = (yMin / pt.viewport.height * 100) + '%';
-                   mark.style.width = (drawWidth / pt.viewport.width * 100) + '%';
-                   mark.style.height = (fontHeight / pt.viewport.height * 100) + '%';
-                   highlightLayer.appendChild(mark);
-                   
-                   setTimeout(() => {
-                      const headerOffset = 150; 
-                      const elementPosition = mark.getBoundingClientRect().top;
-                      window.scrollTo({
-                         top: elementPosition + window.pageYOffset - headerOffset,
-                         behavior: "smooth"
-                      });
-                   }, 50);
-                }
-                
-                document.getElementById('searchInfo').innerText = `Pg ${pg}`;
-                searchMatches = [];
-                updateNavButtons();
-                found = true;
-                break;
-             }
-          }
-          if (found) break;
-        }
-        
-        if (!found) {
-          alert(`Could not find printed page "${pg}". Try searching for the section's title text instead!`);
-        }
+         const mark = document.createElement('div');
+         mark.className = 'highlight-box';
+         mark.style.left = (xMin / best.pt.viewport.width * 100) + '%';
+         mark.style.top = (yMin / best.pt.viewport.height * 100) + '%';
+         mark.style.width = (drawWidth / best.pt.viewport.width * 100) + '%';
+         mark.style.height = (fontHeight / best.pt.viewport.height * 100) + '%';
+         best.highlightLayer.appendChild(mark);
+         
+         setTimeout(() => {
+            const headerOffset = 150; 
+            const elementPosition = mark.getBoundingClientRect().top;
+            window.scrollTo({
+               top: elementPosition + window.pageYOffset - headerOffset,
+               behavior: "smooth"
+            });
+         }, 50);
+         
+         document.getElementById('searchInfo').innerText = `Pg ${pg}`;
+         searchMatches = [];
+         updateNavButtons();
+      } else {
+         alert(`Could not geometrically locate the right-aligned page tab for "${pg}". Try searching for the section's title directly!`);
+      }
+    }
+
+    function promptPageJump() {
+      const pg = prompt(`Enter printed page number to jump to (e.g., 16):`);
+      if (pg) {
+         performPageJump(pg);
       }
     }
 
@@ -286,6 +307,11 @@
       const infoText = document.getElementById('searchInfo');
       
       clearHighlights();
+      
+      if (/^\d+$/.test(query) && pdfDocGlobal) {
+        performPageJump(query);
+        return;
+      }
       
       if (!query || !pdfDocGlobal) {
         searchMatches = [];
