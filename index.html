@@ -216,6 +216,8 @@
     let searchMatches = []; // Array of matching page numbers
     let currentMatchIndex = -1;
     let pdfDocGlobal = null;
+    // Map of PDF annotation destinations on the index page: {rect:[x1,y1,x2,y2], pdfPageIdx}
+    let indexDestMap = [];
 
     function clearHighlights() {
       if (!pdfDocGlobal) return;
@@ -472,6 +474,13 @@
       updateZoom();
     }
 
+    function resetZoom() {
+      if (currentZoom !== 100) {
+        currentZoom = 100;
+        updateZoom();
+      }
+    }
+
     function updateZoom() {
       const container = document.getElementById('pdf-container');
       container.style.width = currentZoom + '%';
@@ -568,12 +577,16 @@
                if (interactiveLayer) {
                   textContent.items.forEach(item => {
                       const str = item.str.trim();
-                      if (str.length < 2) return; // Ignore noise
+                      if (str.length < 1) return; // Ignore noise
+                      if (!/^\d+$/.test(str)) return; // Only numeric items
                       
                       const fontHeight = Math.abs(item.transform[3]) || item.height || 10;
-                      const tx = item.transform[4];
-                      const ty = item.transform[5];
+                      const tx = item.transform[4];  // PDF user-space x
+                      const ty = item.transform[5];  // PDF user-space y
                       const width = item.width || 20;
+                      // midpoint in PDF user-space coords for annotation lookup
+                      const midX = tx + width / 2;
+                      const midY = ty + fontHeight / 2;
                       
                       const rect = [tx, ty, tx + width, ty + fontHeight];
                       const viewRect = unscaledViewport.convertToViewportRectangle(rect);
@@ -587,18 +600,32 @@
                       btn.style.top = (yMin / unscaledViewport.height * 100) + '%';
                       btn.style.width = (drawWidth / unscaledViewport.width * 100) + '%';
                       btn.style.height = (fontHeight / unscaledViewport.height * 100) + '%';
+                      btn.style.cursor = 'pointer';
                       btn.onclick = function() {
-                          if (/^\d+$/.test(str)) {
-                              const input = document.getElementById('searchInput');
-                              input.value = str;
-                              executeSearch();
+                          // Step 1: Reset zoom so layout is normal before scrolling
+                          resetZoom();
+                          
+                          // Step 2: Try to find a pre-resolved annotation destination
+                          // that spatially contains this text item's midpoint
+                          const annotMatch = indexDestMap.find(d =>
+                              midX >= d.rect[0] && midX <= d.rect[2] &&
+                              midY >= d.rect[1] && midY <= d.rect[3]
+                          );
+                          
+                          if (annotMatch !== undefined) {
+                              // Use the PDF annotation destination directly — works for pages 1-9
+                              setTimeout(() => scrollToPage(annotMatch.pdfPageIdx + 1), 150);
+                              document.getElementById('searchInfo').innerText = `Pg ${str}`;
+                          } else {
+                              // Fallback: geometric margin-tab search (works for pages 10+)
+                              setTimeout(() => {
+                                  const input = document.getElementById('searchInput');
+                                  input.value = str;
+                                  executeSearch();
+                              }, 150);
                           }
                       };
-                      // Only make it act like a pointer if it's actually a clickable numeric link
-                      if (/^\d+$/.test(str)) {
-                          btn.style.cursor = 'pointer';
-                          interactiveLayer.appendChild(btn);
-                      }
+                      interactiveLayer.appendChild(btn);
                   });
                }
             }
@@ -610,6 +637,27 @@
             
             annotations.forEach(function(anno) {
               if (anno.subtype === 'Link') {
+                // For page 1 (index), pre-resolve destination page indices into indexDestMap
+                // so the interactiveLayer buttons can use them directly for pages 1-9
+                if (pageNum === 1 && anno.dest) {
+                  const storeDestination = (dest) => {
+                    if (Array.isArray(dest) && dest[0]) {
+                      pdfDocGlobal.getPageIndex(dest[0]).then(function(pageIdx) {
+                        indexDestMap.push({ rect: anno.rect, pdfPageIdx: pageIdx });
+                      }).catch(console.error);
+                    } else if (typeof dest === 'string') {
+                      pdfDocGlobal.getDestination(dest).then(function(explicitDest) {
+                        if (explicitDest && explicitDest[0]) {
+                          pdfDocGlobal.getPageIndex(explicitDest[0]).then(function(pageIdx) {
+                            indexDestMap.push({ rect: anno.rect, pdfPageIdx: pageIdx });
+                          }).catch(console.error);
+                        }
+                      }).catch(console.error);
+                    }
+                  };
+                  storeDestination(anno.dest);
+                }
+
                 const a = document.createElement('a');
                 
                 // Convert PDF points to normalized array [xMin, yMin, xMax, yMax]
