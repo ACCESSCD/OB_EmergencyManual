@@ -475,10 +475,17 @@
     }
 
     function resetZoom() {
-      if (currentZoom !== 100) {
-        currentZoom = 100;
-        updateZoom();
-      }
+      if (currentZoom === 100) return;
+      currentZoom = 100;
+      const container = document.getElementById('pdf-container');
+      // Disable the CSS transition so the reset is instant (no mid-animation layout)
+      container.style.transition = 'none';
+      container.style.width = '100%';
+      container.style.maxWidth = '1200px';
+      // Re-enable the transition after two frames so future zoom buttons animate normally
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        container.style.transition = '';
+      }));
     }
 
     function updateZoom() {
@@ -614,16 +621,18 @@
                           
                           if (annotMatch !== undefined) {
                               // Use the PDF annotation destination directly — works for pages 1-9
-                              // 300ms delay: must exceed the 200ms CSS transition on container width
-                              setTimeout(() => scrollToPage(annotMatch.pdfPageIdx + 1), 300);
+                              // Double RAF: fires after browser commits the zoom-reset layout
                               document.getElementById('searchInfo').innerText = `Pg ${str}`;
+                              requestAnimationFrame(() => requestAnimationFrame(() => {
+                                  scrollToPage(annotMatch.pdfPageIdx + 1);
+                              }));
                           } else {
                               // Fallback: geometric margin-tab search (works for pages 10+)
-                              setTimeout(() => {
+                              requestAnimationFrame(() => requestAnimationFrame(() => {
                                   const input = document.getElementById('searchInput');
                                   input.value = str;
                                   executeSearch();
-                              }, 300);
+                              }));
                           }
                       };
                       interactiveLayer.appendChild(btn);
