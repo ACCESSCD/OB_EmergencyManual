@@ -1,11 +1,12 @@
 {
-  "name": "OB Emerg Manual",
-  "short_name": "OB Emerg",
+  "name": "Manual Emergencias OB",
+  "short_name": "Emerg OB ES",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ff3b30",
-  "description": "Emergency Manual for Anesthesia Practice for Cesarean Delivery",
+  "description": "Manual de Emergencias Obstétricas para Anestesia en Cesárea",
+  "lang": "es",
   "icons": [
     {
       "src": "icon.png",

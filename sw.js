@@ -1,10 +1,10 @@
-const CACHE_NAME = 'ob-emerg-manual-v2';
+const CACHE_NAME = 'ob-emerg-manual-es-v1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
   './icon.png',
-  './manual.pdf',
+  './manual-es.pdf',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
 ];
